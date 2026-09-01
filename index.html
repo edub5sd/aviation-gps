@@ -2,23 +2,24 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8" />
-    <title>Aviation Glass Cockpit GPS</title>
+    <title>Tactical Aviation HUD & PFD</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
         :root {
             --hud-green: #00ff66;
+            --hud-glow: rgba(0, 255, 102, 0.4);
             --hud-cyan: #00e5ff;
             --hud-amber: #ffb700;
-            --hud-magenta: #d946ef;
-            --hud-bg: rgba(6, 15, 12, 0.82);
+            --hud-red: #ff3344;
+            --hud-bg: rgba(5, 16, 12, 0.88);
             --hud-border: rgba(0, 255, 102, 0.35);
         }
 
         * { box-sizing: border-box; }
         body {
-            margin: 0; padding: 0; background: #050807;
-            font-family: 'Share Tech Mono', 'Consolas', 'Courier New', monospace;
+            margin: 0; padding: 0; background: #030806;
+            font-family: 'Share Tech Mono', 'Consolas', monospace;
             overflow: hidden; color: var(--hud-green); user-select: none;
         }
 
@@ -27,75 +28,112 @@
             top: 0; left: 0; background: #0b110e; z-index: 1;
         }
 
-        /* Dark radar map filter */
+        /* Radar night styling for map */
         .leaflet-tile-pane {
-            filter: invert(100%) hue-rotate(180deg) brightness(85%) contrast(120%) saturate(60%);
+            filter: invert(100%) hue-rotate(180deg) brightness(80%) contrast(120%) saturate(40%);
         }
 
-        /* Glass HUD Overlays */
         .hud-overlay {
             position: absolute; z-index: 1000; pointer-events: none;
         }
 
-        /* Aircraft Center Reticle */
-        #boresight {
+        /* Attitude Indicator (Artificial Horizon) */
+        #horizon-viewport {
             top: 50%; left: 50%; transform: translate(-50%, -50%);
-            width: 70px; height: 70px;
+            width: 320px; height: 320px;
+            overflow: hidden; border-radius: 50%;
+            border: 1px dashed rgba(0, 255, 102, 0.25);
+            display: flex; align-items: center; justify-content: center;
         }
-        #boresight svg {
-            width: 100%; height: 100%;
-            stroke: var(--hud-amber); stroke-width: 2.5; fill: none;
-            filter: drop-shadow(0 0 6px rgba(255, 183, 0, 0.6));
+
+        #horizon-ladder {
+            width: 260px; height: 600px;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            transform: translateY(0px) rotate(0deg);
+            transition: transform 0.08s linear;
+        }
+
+        .pitch-line {
+            width: 80px; height: 2px; background: var(--hud-green);
+            margin: 18px 0; position: relative;
+            box-shadow: 0 0 6px var(--hud-glow);
+        }
+        .pitch-line::before, .pitch-line::after {
+            content: ''; position: absolute; width: 2px; height: 6px; background: var(--hud-green); top: 0;
+        }
+        .pitch-line::before { left: 0; }
+        .pitch-line::after { right: 0; }
+        .pitch-line.horizon-zero { width: 160px; background: var(--hud-cyan); height: 2px; }
+
+        /* Flight Path Reticle */
+        #flight-director {
+            top: 50%; left: 50%; transform: translate(-50%, -50%);
+            width: 44px; height: 44px;
+        }
+        #flight-director svg {
+            width: 100%; height: 100%; stroke: var(--hud-amber); stroke-width: 2; fill: none;
+            filter: drop-shadow(0 0 6px rgba(255, 183, 0, 0.8));
         }
 
         /* Top Heading Tape */
         #heading-bar {
-            top: 16px; left: 50%; transform: translateX(-50%);
+            top: 14px; left: 50%; transform: translateX(-50%);
             background: var(--hud-bg); border: 1px solid var(--hud-border);
-            border-radius: 4px; padding: 6px 20px; text-align: center;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.6);
+            border-radius: 6px; padding: 6px 24px; text-align: center;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.8);
         }
-        #hdg-val {
-            font-size: 26px; font-weight: bold; color: var(--hud-cyan);
-            letter-spacing: 2px;
-        }
+        #hdg-val { font-size: 26px; font-weight: bold; color: var(--hud-cyan); letter-spacing: 2px; }
+
         .hud-label {
-            font-size: 9px; text-transform: uppercase;
-            letter-spacing: 1.5px; opacity: 0.7; color: #a1b5a9;
+            font-size: 9px; text-transform: uppercase; letter-spacing: 1.5px; opacity: 0.75; color: #a1b5a9;
         }
 
-        /* Left Speed Tape & Right Altitude Tape */
+        /* Speed & Altitude Tapes */
         .tape {
             top: 50%; transform: translateY(-50%);
             background: var(--hud-bg); border: 1px solid var(--hud-border);
-            padding: 14px 10px; border-radius: 6px; text-align: center;
-            min-width: 78px; box-shadow: 0 0 15px rgba(0, 0, 0, 0.6);
+            padding: 14px 12px; border-radius: 8px; text-align: center;
+            min-width: 86px; box-shadow: 0 0 20px rgba(0, 0, 0, 0.8);
         }
-        #speed-tape { left: 16px; border-left: 3px solid var(--hud-green); }
-        #alt-tape { right: 16px; border-right: 3px solid var(--hud-cyan); }
+        #speed-tape { left: 20px; border-left: 4px solid var(--hud-green); }
+        #alt-tape { right: 20px; border-right: 4px solid var(--hud-cyan); }
 
         .tape-value {
-            font-size: 28px; font-weight: bold; margin: 4px 0;
-            text-shadow: 0 0 8px currentColor;
+            font-size: 30px; font-weight: bold; margin: 4px 0;
+            text-shadow: 0 0 10px currentColor;
         }
         #speed-val { color: var(--hud-green); }
         #alt-val { color: var(--hud-cyan); }
+
+        /* Tactical G-Meter & Mach Counter */
+        #tactical-panel {
+            top: 14px; left: 20px; background: var(--hud-bg);
+            border: 1px solid var(--hud-border); border-radius: 6px;
+            padding: 8px 14px; font-size: 13px; display: flex; flex-direction: column; gap: 4px;
+        }
 
         /* Bottom Glass Nav Dashboard */
         #dash {
             bottom: 20px; left: 50%; transform: translateX(-50%);
             background: var(--hud-bg); border: 1px solid var(--hud-border);
-            border-radius: 8px; padding: 12px 24px; display: flex; gap: 28px;
+            border-radius: 10px; padding: 12px 28px; display: flex; gap: 32px;
             backdrop-filter: blur(8px); pointer-events: auto;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.7);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.8);
         }
         .dash-cell { display: flex; flex-direction: column; align-items: center; }
         .dash-val { font-size: 16px; font-weight: bold; color: #fff; margin-top: 2px; }
 
+        /* Keyboard Controls Guide Overlay */
+        #controls-hint {
+            bottom: 20px; right: 20px; background: var(--hud-bg);
+            border: 1px solid var(--hud-border); border-radius: 6px;
+            padding: 8px 12px; font-size: 11px; line-height: 1.5; opacity: 0.8;
+        }
+
         /* Aircraft Position Marker */
         .plane-icon {
             transform-origin: center center;
-            transition: transform 0.2s linear;
+            transition: transform 0.1s linear;
         }
     </style>
 </head>
@@ -103,79 +141,110 @@
 
     <div id="map"></div>
 
-    <!-- HUD Boresight -->
-    <div id="boresight" class="hud-overlay">
-        <svg viewBox="0 0 60 60">
-            <circle cx="30" cy="30" r="4" fill="#ffb700" />
-            <path d="M 12 30 L 22 30 M 38 30 L 48 30 M 30 18 L 30 24" />
+    <!-- Artificial Horizon Viewport -->
+    <div id="horizon-viewport" class="hud-overlay">
+        <div id="horizon-ladder">
+            <div class="pitch-line"></div>
+            <div class="pitch-line"></div>
+            <div class="pitch-line horizon-zero"></div>
+            <div class="pitch-line"></div>
+            <div class="pitch-line"></div>
+        </div>
+    </div>
+
+    <!-- Center Flight Director Reticle -->
+    <div id="flight-director" class="hud-overlay">
+        <svg viewBox="0 0 50 50">
+            <circle cx="25" cy="25" r="5" />
+            <line x1="5" y1="25" x2="16" y2="25" />
+            <line x1="34" y1="25" x2="45" y2="25" />
+            <line x1="25" y1="5" x2="25" y2="15" />
         </svg>
     </div>
 
     <!-- Heading Readout -->
     <div id="heading-bar" class="hud-overlay">
-        <div class="hud-label">Track (TRK)</div>
+        <div class="hud-label">Magnetic Heading</div>
         <div id="hdg-val">360°</div>
     </div>
 
-    <!-- Speed Tape (Knots) -->
+    <!-- Tactical G-Meter / Mach Readout -->
+    <div id="tactical-panel" class="hud-overlay">
+        <div>MACH <span id="mach-val" style="color:var(--hud-cyan); font-weight:bold;">0.18</span></div>
+        <div>G-LOAD <span id="g-val" style="color:var(--hud-amber); font-weight:bold;">+1.0 G</span></div>
+    </div>
+
+    <!-- Left Speed Tape (Knots) -->
     <div id="speed-tape" class="hud-overlay tape">
-        <div class="hud-label">GS (KTS)</div>
-        <div id="speed-val" class="tape-value">000</div>
+        <div class="hud-label">AIRSPEED</div>
+        <div id="speed-val" class="tape-value">120</div>
+        <div class="hud-label">KTS</div>
     </div>
 
-    <!-- Altitude Tape (Feet MSL) -->
+    <!-- Right Altitude Tape (Feet MSL) -->
     <div id="alt-tape" class="hud-overlay tape">
-        <div class="hud-label">ALT (FT)</div>
-        <div id="alt-val" class="tape-value">0000</div>
+        <div class="hud-label">ALTITUDE</div>
+        <div id="alt-val" class="tape-value">2500</div>
+        <div class="hud-label">FT MSL</div>
     </div>
 
-    <!-- Avionics Flight Data Computer -->
+    <!-- Flight Data Computer -->
     <div id="dash" class="hud-overlay">
         <div class="dash-cell">
-            <span class="hud-label">Latitude</span>
-            <span id="lat-val" class="dash-val">--.----</span>
+            <span class="hud-label">LAT</span>
+            <span id="lat-val" class="dash-val">32.9628</span>
         </div>
         <div class="dash-cell">
-            <span class="hud-label">Longitude</span>
-            <span id="lon-val" class="dash-val">--.----</span>
+            <span class="hud-label">LON</span>
+            <span id="lon-val" class="dash-val">-117.0359</span>
         </div>
         <div class="dash-cell">
-            <span class="hud-label">VVI (FPM)</span>
-            <span id="vvi-val" class="dash-val">+0</span>
+            <span class="hud-label">VVI (CLIMB)</span>
+            <span id="vvi-val" class="dash-val">+0 FPM</span>
         </div>
         <div class="dash-cell">
-            <span class="hud-label">Nav Fix</span>
-            <span id="fix-val" class="dash-val" style="color: var(--hud-amber);">SEARCH</span>
+            <span class="hud-label">MODE</span>
+            <span id="mode-val" class="dash-val" style="color: var(--hud-amber); cursor:pointer;">SIM (W/A/S/D)</span>
         </div>
+    </div>
+
+    <div id="controls-hint" class="hud-overlay">
+        <b>FLIGHT CONTROLS:</b><br>
+        W / S: Pitch Down / Up<br>
+        A / D: Bank Left / Right<br>
+        ↑ / ↓: Throttle + / -<br>
+        C: Level Wings
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
-        // Initialize Map
-        const map = L.map('map', {
-            zoomControl: false,
-            attributionControl: false
-        }).setView([32.9628, -117.0359], 13); // Default local center
+        // Simulation State
+        const flight = {
+            lat: 32.9628,
+            lon: -117.0359,
+            airspeed: 120,    // Knots
+            alt: 2500,        // Feet MSL
+            heading: 360,     // Degrees
+            pitch: 0,         // Degrees
+            roll: 0,          // Degrees
+            vvi: 0,           // Vertical velocity ft/min
+            gForce: 1.0,
+            useGps: false
+        };
 
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            maxZoom: 18
-        }).addTo(map);
+        // Initialize Leaflet Map
+        const map = L.map('map', { zoomControl: false, attributionControl: false }).setView([flight.lat, flight.lon], 13);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18 }).addTo(map);
 
-        // Aircraft Marker SVG
+        // Aircraft Center Symbol
         const planeSvg = `
-            <svg class="plane-icon" id="plane-symbol" width="40" height="40" viewBox="0 0 24 24" fill="#00ff66">
+            <svg id="plane-symbol" width="44" height="44" viewBox="0 0 24 24" fill="#00ff66" style="filter: drop-shadow(0 0 6px rgba(0,255,102,0.8));">
                 <path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z"/>
             </svg>
         `;
-
-        const planeIcon = L.divIcon({
-            html: planeSvg,
-            className: '',
-            iconSize: [40, 40],
-            iconAnchor: [20, 20]
-        });
-
-        const marker = L.marker([32.9628, -117.0359], { icon: planeIcon }).addTo(map);
+        const marker = L.marker([flight.lat, flight.lon], {
+            icon: L.divIcon({ html: planeSvg, className: 'plane-icon', iconSize: [44, 44], iconAnchor: [22, 22] })
+        }).addTo(map);
 
         // UI Element References
         const speedVal = document.getElementById('speed-val');
@@ -183,44 +252,100 @@
         const hdgVal = document.getElementById('hdg-val');
         const latVal = document.getElementById('lat-val');
         const lonVal = document.getElementById('lon-val');
-        const fixVal = document.getElementById('fix-val');
+        const vviVal = document.getElementById('vvi-val');
+        const machVal = document.getElementById('mach-val');
+        const gVal = document.getElementById('g-val');
+        const modeVal = document.getElementById('mode-val');
+        const horizonLadder = document.getElementById('horizon-ladder');
 
-        // GPS Geolocation Watcher
-        if ("geolocation" in navigator) {
-            navigator.geolocation.watchPosition(
-                (pos) => {
-                    const lat = pos.coords.latitude;
-                    const lon = pos.coords.longitude;
-                    
-                    // Convert m/s to knots (1 m/s = 1.94384 knots)
-                    const knots = pos.coords.speed ? Math.round(pos.coords.speed * 1.94384) : 0;
-                    // Convert meters to feet (1 m = 3.28084 ft)
-                    const feet = pos.coords.altitude ? Math.round(pos.coords.altitude * 3.28084) : 1200;
-                    const track = pos.coords.heading ? Math.round(pos.coords.heading) : 360;
+        // Keyboard Flight Simulation Controls
+        const keys = {};
+        window.addEventListener('keydown', (e) => {
+            keys[e.key.toLowerCase()] = true;
+            if (e.key === 'ArrowUp' || e.key === 'ArrowDown') e.preventDefault();
+            if (e.key.toLowerCase() === 'c') { flight.pitch = 0; flight.roll = 0; }
+        });
+        window.addEventListener('keyup', (e) => { keys[e.key.toLowerCase()] = false; });
 
-                    // Update HUD
-                    speedVal.textContent = String(knots).padStart(3, '0');
-                    altVal.textContent = String(feet).padStart(4, '0');
-                    hdgVal.textContent = `${String(track).padStart(3, '0')}°`;
-                    latVal.textContent = lat.toFixed(4);
-                    lonVal.textContent = lon.toFixed(4);
-                    fixVal.textContent = "3D GPS";
-                    fixVal.style.color = "var(--hud-green)";
+        // Physics & HUD Update Loop
+        function updateFlightSim() {
+            if (!flight.useGps) {
+                // Throttle
+                if (keys['arrowup']) flight.airspeed = Math.min(flight.airspeed + 0.8, 380);
+                if (keys['arrowdown']) flight.airspeed = Math.max(flight.airspeed - 0.8, 55);
 
-                    // Update Map & Symbol
-                    marker.setLatLng([lat, lon]);
-                    map.panTo([lat, lon], { animate: true, duration: 0.5 });
-                    
-                    const symbol = document.getElementById('plane-symbol');
-                    if (symbol) symbol.style.transform = `rotate(${track}deg)`;
-                },
-                (err) => {
-                    fixVal.textContent = "DEMO SIM";
-                    fixVal.style.color = "var(--hud-amber)";
-                },
-                { enableHighAccuracy: true, maximumAge: 1000 }
-            );
+                // Pitch (W / S)
+                if (keys['w']) flight.pitch = Math.max(flight.pitch - 0.5, -25);
+                if (keys['s']) flight.pitch = Math.min(flight.pitch + 0.5, 25);
+
+                // Roll / Bank (A / D)
+                if (keys['a']) { flight.roll = Math.max(flight.roll - 1.2, -45); }
+                else if (keys['d']) { flight.roll = Math.min(flight.roll + 1.2, 45); }
+                else { flight.roll *= 0.95; } // self-center
+
+                // Heading changes with roll bank angle
+                flight.heading = (flight.heading + (flight.roll * 0.04) + 360) % 360;
+
+                // Vertical Speed & Altitude
+                flight.vvi = Math.round(flight.pitch * (flight.airspeed * 0.9));
+                flight.alt = Math.max(0, Math.round(flight.alt + (flight.vvi / 60) * 0.05));
+
+                // Lat/Lon Navigation Calculation
+                const speedNauticalMilesSec = (flight.airspeed / 3600) * 0.05;
+                const rad = flight.heading * (Math.PI / 180);
+                flight.lat += (speedNauticalMilesSec * Math.cos(rad)) / 60;
+                flight.lon += (speedNauticalMilesSec * Math.sin(rad)) / (60 * Math.cos(flight.lat * (Math.PI / 180)));
+
+                // Calculate G-force from turn bank angle
+                flight.gForce = (1 / Math.cos(flight.roll * (Math.PI / 180))).toFixed(1);
+            }
+
+            // Render HUD Display
+            speedVal.textContent = String(Math.round(flight.airspeed)).padStart(3, '0');
+            altVal.textContent = String(Math.round(flight.alt)).padStart(4, '0');
+            hdgVal.textContent = `${String(Math.round(flight.heading)).padStart(3, '0')}°`;
+            latVal.textContent = flight.lat.toFixed(4);
+            lonVal.textContent = flight.lon.toFixed(4);
+            vviVal.textContent = `${flight.vvi >= 0 ? '+' : ''}${flight.vvi} FPM`;
+            machVal.textContent = (flight.airspeed / 661).toFixed(2);
+            gVal.textContent = `+${flight.gForce} G`;
+
+            // Transform Artificial Horizon Ladder
+            const pitchPixelOffset = flight.pitch * 3.5;
+            horizonLadder.style.transform = `translateY(${pitchPixelOffset}px) rotate(${-flight.roll}deg)`;
+
+            // Update Leaflet Position & Airplane Reticle
+            marker.setLatLng([flight.lat, flight.lon]);
+            map.setView([flight.lat, flight.lon], map.getZoom(), { animate: false });
+            const planeIconEl = document.getElementById('plane-symbol');
+            if (planeIconEl) planeIconEl.style.transform = `rotate(${flight.heading}deg)`;
+
+            requestAnimationFrame(updateFlightSim);
         }
+
+        // Toggle Real Device GPS vs Simulation
+        modeVal.addEventListener('click', () => {
+            flight.useGps = !flight.useGps;
+            if (flight.useGps && "geolocation" in navigator) {
+                modeVal.textContent = "LIVE GPS (TRACK)";
+                modeVal.style.color = "var(--hud-green)";
+                navigator.geolocation.watchPosition((pos) => {
+                    if (!flight.useGps) return;
+                    flight.lat = pos.coords.latitude;
+                    flight.lon = pos.coords.longitude;
+                    if (pos.coords.speed) flight.airspeed = Math.round(pos.coords.speed * 1.94384);
+                    if (pos.coords.altitude) flight.alt = Math.round(pos.coords.altitude * 3.28084);
+                    if (pos.coords.heading) flight.heading = Math.round(pos.coords.heading);
+                }, null, { enableHighAccuracy: true });
+            } else {
+                flight.useGps = false;
+                modeVal.textContent = "SIM (W/A/S/D)";
+                modeVal.style.color = "var(--hud-amber)";
+            }
+        });
+
+        // Launch Simulation Loop
+        requestAnimationFrame(updateFlightSim);
     </script>
 </body>
 </html>
