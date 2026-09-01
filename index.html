@@ -2,395 +2,226 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8" />
-    <title>AeroNav Pro Glass Cockpit EFB</title>
+    <title>AeroNav Offline Tactical EFB</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
         :root {
-            --pfd-green: #00ff66;
-            --pfd-cyan: #00e5ff;
-            --pfd-magenta: #ff00ff;
-            --pfd-amber: #ffb700;
-            --pfd-red: #ff3344;
-            --pfd-bg: rgba(6, 12, 10, 0.90);
-            --pfd-border: rgba(0, 255, 102, 0.3);
+            --hud-green: #00ff66;
+            --hud-cyan: #00e5ff;
+            --hud-magenta: #ff00ff;
+            --hud-amber: #ffb700;
+            --hud-red: #ff3344;
+            --hud-bg: rgba(6, 14, 10, 0.92);
+            --hud-border: rgba(0, 255, 102, 0.35);
         }
 
         * { box-sizing: border-box; }
         body {
-            margin: 0; padding: 0; background: #000;
-            font-family: 'Share Tech Mono', 'Consolas', monospace;
-            overflow: hidden; color: var(--pfd-green); user-select: none;
+            margin: 0; padding: 0; background: #020604;
+            font-family: 'Consolas', 'Courier New', monospace;
+            overflow: hidden; color: var(--hud-green); user-select: none;
         }
 
-        #map { height: 100vh; width: 100vw; position: absolute; top: 0; left: 0; z-index: 1; }
-        .leaflet-tile-pane { filter: invert(100%) hue-rotate(185deg) brightness(75%) contrast(130%) saturate(50%); }
+        /* Tactical Vector Moving Map Canvas */
+        #nav-canvas {
+            position: absolute; top: 0; left: 0; width: 100vw; height: 100vh;
+            background: radial-gradient(circle at center, #071510 0%, #010604 100%);
+            z-index: 1;
+        }
 
-        .hud-overlay { position: absolute; z-index: 1000; pointer-events: none; }
+        .hud-overlay { position: absolute; z-index: 10; pointer-events: none; }
 
-        /* Top Nav Flight Director Bar */
+        /* Top Nav Guidance Director */
         #nav-director {
-            top: 10px; left: 50%; transform: translateX(-50%);
-            background: var(--pfd-bg); border: 1px solid var(--pfd-border);
-            border-radius: 6px; padding: 8px 18px; display: flex; gap: 24px;
+            top: 12px; left: 50%; transform: translateX(-50%);
+            background: var(--hud-bg); border: 1px solid var(--hud-border);
+            border-radius: 6px; padding: 8px 20px; display: flex; gap: 20px;
             box-shadow: 0 4px 20px rgba(0,0,0,0.8);
         }
-        .nav-block { display: flex; flex-direction: column; align-items: center; }
-        .nav-label { font-size: 9px; color: #889988; text-transform: uppercase; letter-spacing: 1px; }
-        .nav-val { font-size: 16px; font-weight: bold; color: #fff; }
-        .mag-val { color: var(--pfd-magenta); }
+        .nav-cell { display: flex; flex-direction: column; align-items: center; }
+        .nav-label { font-size: 9px; color: #7f998a; text-transform: uppercase; letter-spacing: 1px; }
+        .nav-val { font-size: 15px; font-weight: bold; color: #fff; }
+        .mag-val { color: var(--hud-magenta); }
 
-        /* Center Pitch Ladder & Artificial Horizon */
-        #horizon-frame {
+        /* Speed & Altitude Flight Tapes */
+        .tape {
+            top: 50%; transform: translateY(-50%);
+            background: var(--hud-bg); border: 1px solid var(--hud-border);
+            padding: 12px 10px; border-radius: 6px; text-align: center;
+            min-width: 82px; box-shadow: 0 0 20px rgba(0,0,0,0.8);
+        }
+        #speed-tape { left: 14px; border-left: 4px solid var(--hud-green); }
+        #alt-tape { right: 14px; border-right: 4px solid var(--hud-cyan); }
+        .tape-num { font-size: 28px; font-weight: bold; margin: 4px 0; }
+
+        /* Center Pitch Ladder */
+        #pitch-frame {
             top: 50%; left: 50%; transform: translate(-50%, -50%);
-            width: 320px; height: 320px; overflow: hidden; border-radius: 50%;
+            width: 260px; height: 260px; overflow: hidden; border-radius: 50%;
             border: 1px dashed rgba(0, 255, 102, 0.2);
             display: flex; align-items: center; justify-content: center;
         }
-        #horizon-ladder {
-            width: 240px; height: 600px; display: flex; flex-direction: column;
+        #pitch-ladder {
+            width: 200px; height: 500px; display: flex; flex-direction: column;
             align-items: center; justify-content: center;
-            transition: transform 0.08s linear;
         }
         .pitch-bar {
-            width: 80px; height: 2px; background: var(--pfd-green);
-            margin: 16px 0; position: relative;
+            width: 70px; height: 2px; background: var(--hud-green);
+            margin: 14px 0; position: relative;
         }
-        .pitch-bar::before { content: ''; position: absolute; left: 0; width: 2px; height: 6px; background: currentColor; }
-        .pitch-bar::after { content: ''; position: absolute; right: 0; width: 2px; height: 6px; background: currentColor; }
-        .pitch-bar.zero { width: 180px; background: var(--pfd-cyan); height: 2px; }
+        .pitch-bar.level { width: 140px; background: var(--hud-cyan); }
 
-        /* Flight Reticle Boresight */
-        #boresight {
-            top: 50%; left: 50%; transform: translate(-50%, -50%);
-            width: 50px; height: 50px;
+        /* Emergency Nearest Airport Divert Card */
+        #divert-card {
+            top: 75px; left: 14px; background: var(--hud-bg);
+            border: 1px solid var(--hud-border); border-radius: 6px;
+            padding: 10px 14px; font-size: 11px; min-width: 210px;
         }
-        #boresight svg {
-            width: 100%; height: 100%; stroke: var(--pfd-amber); stroke-width: 2.5; fill: none;
-            filter: drop-shadow(0 0 6px rgba(255, 183, 0, 0.7));
-        }
-
-        /* Speed & Alt Tapes */
-        .tape {
-            top: 50%; transform: translateY(-50%);
-            background: var(--pfd-bg); border: 1px solid var(--pfd-border);
-            padding: 14px 10px; border-radius: 6px; text-align: center;
-            min-width: 86px; box-shadow: 0 0 20px rgba(0,0,0,0.8);
-        }
-        #speed-tape { left: 16px; border-left: 4px solid var(--pfd-green); }
-        #alt-tape { right: 16px; border-right: 4px solid var(--pfd-cyan); }
-        .tape-value { font-size: 32px; font-weight: bold; margin: 4px 0; }
-
-        /* ADS-B Tactical Radar Threat Box */
-        #radar-panel {
-            top: 70px; left: 16px; background: var(--pfd-bg);
-            border: 1px solid var(--pfd-border); border-radius: 6px;
-            padding: 10px; min-width: 180px; font-size: 11px;
-        }
-        .threat-alert { color: var(--pfd-red); font-weight: bold; animation: blink 0.8s infinite; }
-        @keyframes blink { 50% { opacity: 0.2; } }
-
-        /* Master Caution Alert Box */
-        #annunciator {
-            top: 70px; right: 16px; background: var(--pfd-bg);
-            border: 2px solid var(--pfd-green); border-radius: 6px;
-            padding: 8px 16px; font-size: 14px; font-weight: bold;
+        .divert-btn {
+            background: #ff3344; color: #fff; border: none; font-family: monospace;
+            padding: 4px 8px; border-radius: 4px; font-weight: bold; cursor: pointer;
+            margin-top: 6px; width: 100%; pointer-events: auto;
         }
 
-        /* Bottom Glass Nav Dashboard */
+        /* Bottom Status & Sensor Strip */
         #dash {
-            bottom: 16px; left: 50%; transform: translateX(-50%);
-            background: var(--pfd-bg); border: 1px solid var(--pfd-border);
-            border-radius: 8px; padding: 10px 24px; display: flex; gap: 26px;
-            backdrop-filter: blur(8px); pointer-events: auto;
+            bottom: 12px; left: 50%; transform: translateX(-50%);
+            background: var(--hud-bg); border: 1px solid var(--hud-border);
+            border-radius: 8px; padding: 10px 22px; display: flex; gap: 24px;
+            pointer-events: auto;
         }
 
-        /* Airport Runway Labels */
-        .apt-label {
-            background: rgba(0,0,0,0.85); border: 1px solid var(--pfd-cyan);
-            color: var(--pfd-cyan); font-family: monospace; font-size: 10px;
-            padding: 2px 4px; border-radius: 3px; font-weight: bold;
-        }
-
-        /* Controls guide */
-        #sim-helper {
-            bottom: 16px; right: 16px; background: var(--pfd-bg);
-            border: 1px solid var(--pfd-border); border-radius: 6px;
-            padding: 8px 12px; font-size: 11px; line-height: 1.4; opacity: 0.85;
-        }
+        #mode-toggle { color: var(--hud-amber); cursor: pointer; font-weight: bold; }
     </style>
 </head>
 <body>
 
-    <div id="map"></div>
+    <!-- Vector Tactical Offline Display -->
+    <canvas id="nav-canvas"></canvas>
 
-    <!-- PFD Artificial Horizon -->
-    <div id="horizon-frame" class="hud-overlay">
-        <div id="horizon-ladder">
+    <!-- Pitch Ladder / Artificial Horizon -->
+    <div id="pitch-frame" class="hud-overlay">
+        <div id="pitch-ladder">
             <div class="pitch-bar"></div>
             <div class="pitch-bar"></div>
-            <div class="pitch-bar zero"></div>
+            <div class="pitch-bar level"></div>
             <div class="pitch-bar"></div>
             <div class="pitch-bar"></div>
         </div>
     </div>
 
-    <!-- Center Flight Symbol Reticle -->
-    <div id="boresight" class="hud-overlay">
-        <svg viewBox="0 0 50 50">
-            <circle cx="25" cy="25" r="4" />
-            <line x1="6" y1="25" x2="16" y2="25" />
-            <line x1="34" y1="25" x2="44" y2="25" />
-            <line x1="25" y1="8" x2="25" y2="15" />
-        </svg>
-    </div>
-
-    <!-- Top GPS Waypoint Guidance Bar -->
+    <!-- Active Waypoint Navigation Bar -->
     <div id="nav-director" class="hud-overlay">
-        <div class="nav-block"><span class="nav-label">WPT</span><span id="wpt-val" class="nav-val mag-val">KSAN</span></div>
-        <div class="nav-block"><span class="nav-label">DIS</span><span id="dis-val" class="nav-val">4.2 NM</span></div>
-        <div class="nav-block"><span class="nav-label">DTK</span><span id="dtk-val" class="nav-val mag-val">285°</span></div>
-        <div class="nav-block"><span class="nav-label">TRK</span><span id="trk-val" class="nav-val">285°</span></div>
-        <div class="nav-block"><span class="nav-label">ETE</span><span id="ete-val" class="nav-val">02:14</span></div>
+        <div class="nav-cell"><span class="nav-label">WPT</span><span id="wpt-val" class="nav-val mag-val">KSAN</span></div>
+        <div class="nav-cell"><span class="nav-label">DIS</span><span id="dis-val" class="nav-val">0.0 NM</span></div>
+        <div class="nav-cell"><span class="nav-label">BEARING</span><span id="brg-val" class="nav-val mag-val">---°</span></div>
+        <div class="nav-cell"><span class="nav-label">TRACK</span><span id="trk-val" class="nav-val">---°</span></div>
+        <div class="nav-cell"><span class="nav-label">ETE</span><span id="ete-val" class="nav-val">--:--</span></div>
     </div>
 
-    <!-- Left Speed Tape (IAS / GS) -->
+    <!-- Airspeed Tape -->
     <div id="speed-tape" class="hud-overlay tape">
         <div class="nav-label">AIRSPEED</div>
-        <div id="speed-val" class="tape-value" style="color:var(--pfd-green)">115</div>
+        <div id="speed-val" class="tape-num" style="color:var(--hud-green)">120</div>
         <div class="nav-label">KTS</div>
     </div>
 
-    <!-- Right Altitude Tape (MSL) -->
+    <!-- Altitude Tape -->
     <div id="alt-tape" class="hud-overlay tape">
         <div class="nav-label">ALTITUDE</div>
-        <div id="alt-val" class="tape-value" style="color:var(--pfd-cyan)">2500</div>
+        <div id="alt-val" class="tape-num" style="color:var(--hud-cyan)">2500</div>
         <div class="nav-label">FT MSL</div>
     </div>
 
-    <!-- Live ADS-B Radar Threat Table -->
-    <div id="radar-panel" class="hud-overlay">
-        <div style="font-weight:bold; color:var(--pfd-amber); margin-bottom:4px;">ADS-B TRAFFIC RADAR</div>
-        <div id="traffic-list">Scanning 1090MHz ES...</div>
+    <!-- Emergency Divert Panel -->
+    <div id="divert-card" class="hud-overlay">
+        <div style="color:var(--hud-amber); font-weight:bold;">EMERGENCY DIVERT</div>
+        <div id="divert-info" style="margin-top:4px;">Calculating nearest...</div>
+        <button class="divert-btn" id="divert-action">DIRECT-TO NEAREST</button>
     </div>
 
-    <!-- Annunciator Master Warning Box -->
-    <div id="annunciator" class="hud-overlay">TERR: NORMAL</div>
-
-    <!-- Bottom Nav Diagnostic Bar -->
+    <!-- Bottom Diagnostics -->
     <div id="dash" class="hud-overlay">
-        <div class="nav-block"><span class="nav-label">VVI</span><span id="vvi-val" class="nav-val">+0 FPM</span></div>
-        <div class="nav-block"><span class="nav-label">G-METER</span><span id="g-val" class="nav-val">+1.0 G</span></div>
-        <div class="nav-block"><span class="nav-label">MACH</span><span id="mach-val" class="nav-val">0.17</span></div>
-        <div class="nav-block"><span class="nav-label">SOURCE</span><span id="mode-val" class="nav-val" style="color:var(--pfd-amber); cursor:pointer;">SIM (W/A/S/D)</span></div>
+        <div class="nav-cell"><span class="nav-label">VVI</span><span id="vvi-val" class="nav-val">+0 FPM</span></div>
+        <div class="nav-cell"><span class="nav-label">DENS ALT</span><span id="da-val" class="nav-val">2,780 FT</span></div>
+        <div class="nav-cell"><span class="nav-label">CAUTION</span><span id="warn-val" class="nav-val" style="color:var(--hud-green)">NORMAL</span></div>
+        <div class="nav-cell"><span class="nav-label">MODE</span><span id="mode-toggle">SIM (W/A/S/D)</span></div>
     </div>
 
-    <!-- Flight Simulator Keys -->
-    <div id="sim-helper" class="hud-overlay">
-        <b>FLIGHT YOKE:</b><br>
-        W / S: Pitch Down / Up<br>
-        A / D: Roll Left / Right<br>
-        ↑ / ↓: Throttle (55-380 Kts)<br>
-        C: Wings Level | T: Audio Mute
-    </div>
-
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
-        // Audio Synthesizer for Glass Cockpit Warnings
-        const synth = window.speechSynthesis;
-        let soundMuted = false;
-        function playWarning(phrase) {
-            if (soundMuted || !synth || synth.speaking) return;
-            const utter = new SpeechSynthesisUtterance(phrase);
-            utter.rate = 1.1;
-            utter.pitch = 0.9;
-            synth.speak(utter);
-        }
+        // Offline Aeronautical Airport & Runway Database (Embedded)
+        const airfields = [
+            { id: "KSAN", name: "San Diego Intl", lat: 32.7338, lon: -117.1933, elev: 17, runways: ["09/27"] },
+            { id: "KMYF", name: "Montgomery Field", lat: 32.8157, lon: -117.1396, elev: 427, runways: ["10L/28R", "05/23"] },
+            { id: "KSEE", name: "Gillespie Field", lat: 32.8262, lon: -116.9722, elev: 388, runways: ["17/35", "09/27"] },
+            { id: "KRNM", name: "Ramona Field", lat: 33.0390, lon: -116.9150, elev: 1393, runways: ["09/27"] },
+            { id: "KCRQ", name: "McClellan-Palomar", lat: 33.1283, lon: -117.2800, elev: 331, runways: ["06/24"] }
+        ];
 
-        // Aircraft State
+        // Aircraft Flight Physics & Sensor Model
         const ac = {
-            lat: 32.7338,
-            lon: -117.1550,
-            alt: 2500,
-            speed: 115,
-            hdg: 285,
-            pitch: 0,
-            roll: 0,
-            vvi: 0,
-            gForce: 1.0,
-            gps: false
+            lat: 32.7338, lon: -117.1550,
+            alt: 2500, speed: 120, hdg: 270,
+            pitch: 0, roll: 0, vvi: 0,
+            targetWpt: airfields[0],
+            useGps: false
         };
 
-        // Waypoints (Airports & VORs)
-        const waypoints = [
-            { name: "KSAN (San Diego)", lat: 32.7338, lon: -117.1933, rwy: "09/27" },
-            { name: "KMYF (Montgomery)", lat: 32.8157, lon: -117.1396, rwy: "10L/28R" },
-            { name: "KSEE (Gillespie)", lat: 32.8262, lon: -116.9722, rwy: "17/35" },
-            { name: "KRNM (Ramona)", lat: 33.0390, lon: -116.9150, rwy: "09/27" },
-            { name: "KCRQ (Carlsbad)", lat: 33.1283, lon: -117.2800, rwy: "06/24" }
-        ];
-        let currentWpt = waypoints[0];
+        let nearestAirfield = airfields[0];
 
-        // Map Setup
-        const map = L.map('map', { zoomControl: false, attributionControl: false }).setView([ac.lat, ac.lon], 12);
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18 }).addTo(map);
+        // Vector Canvas Setup (100% Offline-Safe)
+        const canvas = document.getElementById('nav-canvas');
+        const ctx = canvas.getContext('2d');
 
-        // Draw Airport Waypoints on Map
-        waypoints.forEach(w => {
-            L.circleMarker([w.lat, w.lon], { color: '#00e5ff', radius: 6, fillOpacity: 0.8 }).addTo(map);
-            L.marker([w.lat, w.lon], {
-                icon: L.divIcon({ className: 'apt-label', html: `${w.name} [${w.rwy}]`, iconSize: [110, 16], iconAnchor: [-8, 8] })
-            }).addTo(map);
-        });
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resize);
+        resize();
 
-        // Aircraft Center Marker
-        const planeSvg = `<svg id="plane-symbol" width="44" height="44" viewBox="0 0 24 24" fill="#00ff66" style="filter: drop-shadow(0 0 8px #00ff66);"><path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z"/></svg>`;
-        const marker = L.marker([ac.lat, ac.lon], { icon: L.divIcon({ html: planeSvg, iconSize: [44, 44], iconAnchor: [22, 22] }) }).addTo(map);
-
-        // Active Route Flight Line
-        const flightPathLine = L.polyline([[ac.lat, ac.lon], [currentWpt.lat, currentWpt.lon]], { color: '#ff00ff', weight: 3, dashArray: '8, 6' }).addTo(map);
-
-        // ADS-B Traffic Targets
-        const traffic = [
-            { id: "SWA182", lat: 32.752, lon: -117.12, alt: 2200, marker: null },
-            { id: "N824CP", lat: 32.715, lon: -117.18, alt: 1800, marker: null }
-        ];
-        traffic.forEach(t => {
-            t.marker = L.circleMarker([t.lat, t.lon], { color: '#ffb700', radius: 5 }).addTo(map);
-        });
-
-        // DOM Elements
-        const ladder = document.getElementById('horizon-ladder');
-        const planeSymbol = document.getElementById('plane-symbol');
-        const speedVal = document.getElementById('speed-val');
-        const altVal = document.getElementById('alt-val');
-        const trkVal = document.getElementById('trk-val');
-        const disVal = document.getElementById('dis-val');
-        const dtkVal = document.getElementById('dtk-val');
-        const eteVal = document.getElementById('ete-val');
-        const vviVal = document.getElementById('vvi-val');
-        const gVal = document.getElementById('g-val');
-        const machVal = document.getElementById('mach-val');
-        const annunciator = document.getElementById('annunciator');
-        const trafficList = document.getElementById('traffic-list');
-        const modeVal = document.getElementById('mode-val');
-
-        // Flight Math Utility
-        function getDistanceNM(lat1, lon1, lat2, lon2) {
-            const R = 3440.065; // Earth radius in NM
+        // Distance & Bearing Calculations (Great Circle / Rhumb Approximation)
+        function calcDistance(lat1, lon1, lat2, lon2) {
+            const R = 3440.065; // NM
             const dLat = (lat2 - lat1) * Math.PI / 180;
             const dLon = (lon2 - lon1) * Math.PI / 180;
-            const a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon/2) * Math.sin(dLon/2);
+            const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                      Math.sin(dLon/2) * Math.sin(dLon/2);
             return (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)) * R).toFixed(1);
         }
 
-        function getBearing(lat1, lon1, lat2, lon2) {
+        function calcBearing(lat1, lon1, lat2, lon2) {
             const y = Math.sin((lon2 - lon1) * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180);
-            const x = Math.cos(lat1 * Math.PI / 180) * Math.sin(lat2 * Math.PI / 180) - Math.sin(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.cos((lon2 - lon1) * Math.PI / 180);
+            const x = Math.cos(lat1 * Math.PI / 180) * Math.sin(lat2 * Math.PI / 180) -
+                      Math.sin(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.cos((lon2 - lon1) * Math.PI / 180);
             return Math.round(((Math.atan2(y, x) * 180 / Math.PI) + 360) % 360);
         }
 
-        // Flight Input Handling
+        // Keyboard Controls
         const keys = {};
-        window.addEventListener('keydown', e => {
+        window.addEventListener('keydown', (e) => {
             keys[e.key.toLowerCase()] = true;
-            if (e.key === 'ArrowUp' || e.key === 'ArrowDown') e.preventDefault();
+            if (['arrowup','arrowdown'].includes(e.key.toLowerCase())) e.preventDefault();
             if (e.key.toLowerCase() === 'c') { ac.pitch = 0; ac.roll = 0; }
-            if (e.key.toLowerCase() === 't') { soundMuted = !soundMuted; }
         });
-        window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
+        window.addEventListener('keyup', (e) => { keys[e.key.toLowerCase()] = false; });
 
-        // Core Cockpit Loop
-        function runPFD() {
-            if (!ac.gps) {
-                if (keys['arrowup']) ac.speed = Math.min(ac.speed + 0.8, 380);
-                if (keys['arrowdown']) ac.speed = Math.max(ac.speed - 0.8, 55);
-                if (keys['w']) ac.pitch = Math.max(ac.pitch - 0.45, -25);
-                if (keys['s']) ac.pitch = Math.min(ac.pitch + 0.45, 25);
-                if (keys['a']) ac.roll = Math.max(ac.roll - 1.1, -45);
-                else if (keys['d']) ac.roll = Math.min(ac.roll + 1.1, 45);
-                else ac.roll *= 0.94;
+        // Emergency Direct-To Handler
+        document.getElementById('divert-action').addEventListener('click', () => {
+            ac.targetWpt = nearestAirfield;
+            document.getElementById('wpt-val').textContent = ac.targetWpt.id;
+        });
 
-                // Yaw bank translation
-                ac.hdg = (ac.hdg + (ac.roll * 0.04) + 360) % 360;
-                ac.vvi = Math.round(ac.pitch * (ac.speed * 0.85));
-                ac.alt = Math.max(0, Math.round(ac.alt + (ac.vvi / 60) * 0.05));
-
-                // Position update
-                const distSec = (ac.speed / 3600) * 0.05;
-                const rad = ac.hdg * (Math.PI / 180);
-                ac.lat += (distSec * Math.cos(rad)) / 60;
-                ac.lon += (distSec * Math.sin(rad)) / (60 * Math.cos(ac.lat * (Math.PI / 180)));
-                ac.gForce = (1 / Math.cos(ac.roll * (Math.PI / 180))).toFixed(1);
-            }
-
-            // Waypoint Navigation Computer
-            const dist = getDistanceNM(ac.lat, ac.lon, currentWpt.lat, currentWpt.lon);
-            const bearing = getBearing(ac.lat, ac.lon, currentWpt.lat, currentWpt.lon);
-            const eteSeconds = ac.speed > 0 ? Math.round((dist / ac.speed) * 3600) : 0;
-            const eteMin = String(Math.floor(eteSeconds / 60)).padStart(2, '0');
-            const eteSec = String(eteSeconds % 60).padStart(2, '0');
-
-            // Render Nav Tapes & Data
-            speedVal.textContent = String(Math.round(ac.speed)).padStart(3, '0');
-            altVal.textContent = String(Math.round(ac.alt)).padStart(4, '0');
-            trkVal.textContent = `${String(Math.round(ac.hdg)).padStart(3, '0')}°`;
-            dtkVal.textContent = `${String(bearing).padStart(3, '0')}°`;
-            disVal.textContent = `${dist} NM`;
-            eteVal.textContent = `${eteMin}:${eteSec}`;
-            vviVal.textContent = `${ac.vvi >= 0 ? '+' : ''}${ac.vvi} FPM`;
-            machVal.textContent = (ac.speed / 661).toFixed(2);
-            gVal.textContent = `+${ac.gForce} G`;
-
-            // Horizon Attitude Ladder Transformation
-            ladder.style.transform = `translateY(${ac.pitch * 3.6}px) rotate(${-ac.roll}deg)`;
-
-            // Map Reticle & Path
-            marker.setLatLng([ac.lat, ac.lon]);
-            map.setView([ac.lat, ac.lon], map.getZoom(), { animate: false });
-            if (planeSymbol) planeSymbol.style.transform = `rotate(${ac.hdg}deg)`;
-            flightPathLine.setLatLngs([[ac.lat, ac.lon], [currentWpt.lat, currentWpt.lon]]);
-
-            // ADS-B Threat Detector & Proximity Warning
-            let trafficHtml = "";
-            let threatFound = false;
-            traffic.forEach(t => {
-                const d = getDistanceNM(ac.lat, ac.lon, t.lat, t.lon);
-                const altDiff = t.alt - ac.alt;
-                const isThreat = d < 2.0 && Math.abs(altDiff) < 800;
-                if (isThreat) threatFound = true;
-                trafficHtml += `<div class="${isThreat ? 'threat-alert' : ''}">${t.id}: ${d}NM | ${altDiff > 0 ? '+' : ''}${altDiff}FT</div>`;
-            });
-            trafficList.innerHTML = trafficHtml;
-
-            // Audio & Visual Annunciations
-            if (threatFound) {
-                annunciator.textContent = "TRAFFIC ALERT!";
-                annunciator.style.borderColor = "var(--pfd-red)";
-                annunciator.style.color = "var(--pfd-red)";
-                playWarning("Traffic! Caution!");
-            } else if (ac.alt < 600) {
-                annunciator.textContent = "TERRAIN LOW";
-                annunciator.style.borderColor = "var(--pfd-amber)";
-                annunciator.style.color = "var(--pfd-amber)";
-                playWarning("500 feet");
-            } else {
-                annunciator.textContent = "SYSTEMS NOMINAL";
-                annunciator.style.borderColor = "var(--pfd-green)";
-                annunciator.style.color = "var(--pfd-green)";
-            }
-
-            requestAnimationFrame(runPFD);
-        }
-
-        // Live GPS Source Switch
-        modeVal.addEventListener('click', () => {
-            ac.gps = !ac.gps;
-            if (ac.gps && "geolocation" in navigator) {
-                modeVal.textContent = "LIVE GPS (AIR)";
-                modeVal.style.color = "var(--pfd-green)";
+        // Mode Selector: Toggle Live Sensor vs Flight Simulator
+        const modeEl = document.getElementById('mode-toggle');
+        modeEl.addEventListener('click', () => {
+            ac.useGps = !ac.useGps;
+            if (ac.useGps && "geolocation" in navigator) {
+                modeEl.textContent = "LIVE GPS (IN-FLIGHT)";
+                modeEl.style.color = "var(--hud-green)";
                 navigator.geolocation.watchPosition(pos => {
-                    if (!ac.gps) return;
+                    if (!ac.useGps) return;
                     ac.lat = pos.coords.latitude;
                     ac.lon = pos.coords.longitude;
                     if (pos.coords.speed) ac.speed = Math.round(pos.coords.speed * 1.94384);
@@ -398,14 +229,133 @@
                     if (pos.coords.heading) ac.hdg = Math.round(pos.coords.heading);
                 }, null, { enableHighAccuracy: true });
             } else {
-                ac.gps = false;
-                modeVal.textContent = "SIM (W/A/S/D)";
-                modeVal.style.color = "var(--pfd-amber)";
+                ac.useGps = false;
+                modeEl.textContent = "SIM (W/A/S/D)";
+                modeEl.style.color = "var(--hud-amber)";
             }
         });
 
-        // Start Flight System
-        requestAnimationFrame(runPFD);
+        // Main Avionics Loop
+        function runAvionics() {
+            if (!ac.useGps) {
+                // Controls
+                if (keys['arrowup']) ac.speed = Math.min(ac.speed + 0.8, 350);
+                if (keys['arrowdown']) ac.speed = Math.max(ac.speed - 0.8, 55);
+                if (keys['w']) ac.pitch = Math.max(ac.pitch - 0.5, -20);
+                if (keys['s']) ac.pitch = Math.min(ac.pitch + 0.5, 20);
+                if (keys['a']) ac.roll = Math.max(ac.roll - 1.2, -45);
+                else if (keys['d']) ac.roll = Math.min(ac.roll + 1.2, 45);
+                else ac.roll *= 0.95;
+
+                ac.hdg = (ac.hdg + (ac.roll * 0.04) + 360) % 360;
+                ac.vvi = Math.round(ac.pitch * (ac.speed * 0.9));
+                ac.alt = Math.max(0, Math.round(ac.alt + (ac.vvi / 60) * 0.05));
+
+                const distSec = (ac.speed / 3600) * 0.05;
+                const rad = ac.hdg * (Math.PI / 180);
+                ac.lat += (distSec * Math.cos(rad)) / 60;
+                ac.lon += (distSec * Math.sin(rad)) / (60 * Math.cos(ac.lat * (Math.PI / 180)));
+            }
+
+            // Waypoint Computations
+            const dist = calcDistance(ac.lat, ac.lon, ac.targetWpt.lat, ac.targetWpt.lon);
+            const brg = calcBearing(ac.lat, ac.lon, ac.targetWpt.lat, ac.targetWpt.lon);
+            const eteSeconds = ac.speed > 0 ? Math.round((dist / ac.speed) * 3600) : 0;
+            const eteM = String(Math.floor(eteSeconds / 60)).padStart(2, '0');
+            const eteS = String(eteSeconds % 60).padStart(2, '0');
+
+            // Find Nearest Airfield for Emergency Divert
+            let minD = 9999;
+            airfields.forEach(a => {
+                const d = parseFloat(calcDistance(ac.lat, ac.lon, a.lat, a.lon));
+                if (d < minD) { minD = d; nearestAirfield = a; }
+            });
+
+            // Update UI Tapes & Readouts
+            document.getElementById('speed-val').textContent = String(Math.round(ac.speed)).padStart(3, '0');
+            document.getElementById('alt-val').textContent = String(Math.round(ac.alt)).padStart(4, '0');
+            document.getElementById('trk-val').textContent = `${String(Math.round(ac.hdg)).padStart(3, '0')}°`;
+            document.getElementById('brg-val').textContent = `${String(brg).padStart(3, '0')}°`;
+            document.getElementById('dis-val').textContent = `${dist} NM`;
+            document.getElementById('ete-val').textContent = `${eteM}:${eteS}`;
+            document.getElementById('vvi-val').textContent = `${ac.vvi >= 0 ? '+' : ''}${ac.vvi} FPM`;
+            document.getElementById('da-val').textContent = `${Math.round(ac.alt * 1.08)} FT`; // Density Altitude approximation
+            document.getElementById('divert-info').textContent = `${nearestAirfield.id} (${minD} NM) RWY:${nearestAirfield.runways[0]}`;
+
+            // Pitch & Horizon Ladder
+            document.getElementById('pitch-ladder').style.transform = `translateY(${ac.pitch * 3.5}px) rotate(${-ac.roll}deg)`;
+
+            // Render Tactical Vector Map (No Internet Required)
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            const cx = canvas.width / 2;
+            const cy = canvas.height / 2;
+            const scale = 2200; // pixels per degree
+
+            // Range Compass Rings (5NM, 10NM, 15NM)
+            [30, 60, 90].forEach(r => {
+                ctx.beginPath();
+                ctx.arc(cx, cy, r * 2.2, 0, Math.PI * 2);
+                ctx.strokeStyle = "rgba(0, 255, 102, 0.12)";
+                ctx.lineWidth = 1;
+                ctx.stroke();
+            });
+
+            // Draw Airports & Runways
+            airfields.forEach(a => {
+                const x = cx + (a.lon - ac.lon) * scale;
+                const y = cy - (a.lat - ac.lat) * scale;
+
+                // Airfield circle & label
+                ctx.fillStyle = a.id === ac.targetWpt.id ? "#ff00ff" : "#00e5ff";
+                ctx.beginPath();
+                ctx.arc(x, y, 5, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.font = "11px Consolas";
+                ctx.fillText(`${a.id} [${a.runways[0]}]`, x + 8, y + 4);
+            });
+
+            // Draw Active Flight Plan Route (Magenta Line)
+            const tgtX = cx + (ac.targetWpt.lon - ac.lon) * scale;
+            const tgtY = cy - (ac.targetWpt.lat - ac.lat) * scale;
+            ctx.beginPath();
+            ctx.setLineDash([8, 6]);
+            ctx.moveTo(cx, cy);
+            ctx.lineTo(tgtX, tgtY);
+            ctx.strokeStyle = "#ff00ff";
+            ctx.lineWidth = 2.5;
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            // Draw Center Aircraft Reticle
+            ctx.save();
+            ctx.translate(cx, cy);
+            ctx.rotate((ac.hdg * Math.PI) / 180);
+            ctx.strokeStyle = "#00ff66";
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.moveTo(0, -18); ctx.lineTo(0, 18); // Fuselage
+            ctx.moveTo(-16, 0); ctx.lineTo(16, 0); // Wings
+            ctx.moveTo(-6, 14); ctx.lineTo(6, 14); // Tail
+            ctx.stroke();
+            ctx.restore();
+
+            requestAnimationFrame(runAvionics);
+        }
+
+        // Offline PWA Service Worker Registration
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                const swCode = `
+                    self.addEventListener('install', e => e.waitUntil(self.skipWaiting()));
+                    self.addEventListener('fetch', e => e.respondWith(fetch(e.request).catch(() => caches.match(e.request))));
+                `;
+                const blob = new Blob([swCode], { type: 'application/javascript' });
+                navigator.serviceWorker.register(URL.createObjectURL(blob)).catch(() => {});
+            });
+        }
+
+        requestAnimationFrame(runAvionics);
     </script>
 </body>
 </html>
